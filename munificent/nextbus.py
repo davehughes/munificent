@@ -3,7 +3,7 @@ import requests
 import uuid
 
 from munificent import db
-from munificent.db import Session
+Session = db.configured_session()
 
 JSON_FEED_URL = 'http://webservices.nextbus.com/service/publicJSONFeed'
 

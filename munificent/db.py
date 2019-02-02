@@ -1,3 +1,4 @@
+import os
 
 from sqlalchemy import (
     create_engine,
@@ -7,16 +8,27 @@ from sqlalchemy.orm import sessionmaker, scoped_session, relationship
 from sqlalchemy.ext.declarative import declarative_base
 import sqlalchemy.dialects.sqlite
 
-engine = create_engine('sqlite:///nextbus.db')
-Base = declarative_base()
-Base.metadata.bind = engine
-Session = scoped_session(sessionmaker(bind=engine))
+from munificent import config as app_config
+
+
+def configured_engine(config=None):
+    config = config or app_config
+    return create_engine(config.SQLALCHEMY_DBURI)
+
+
+def configured_session(config=None):
+    config = config or app_config
+    engine = configured_engine(config)
+    return scoped_session(sessionmaker(bind=engine))
 
 
 def search_routes(q):
+    Session = configured_session()
     return (Session.query(Route)
         .filter(Route.tag.like('%{}%'.format(q))))
 
+
+Base = declarative_base()
 
 class Agency(Base):
     __tablename__ = 'agencies'
