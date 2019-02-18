@@ -1,18 +1,21 @@
+VIRTUALENV=env
+
 .PHONY: bootstrap
-bootstrap: 
-	test -d env || virtualenv env --python=python3
-	env/bin/pip install -U pip
-	$(MAKE) pip-requirements
+bootstrap: pip-requirements
 
 .PHONY: test
-test:
-	tox
+test: pip-requirements
+	$(VIRTUALENV)/bin/tox
 
 .PHONY: pip-requirements
 pip-requirements: .make/pip-requirements
 
-.make/pip-requirements: requirements*.txt | .make
-	echo -n $? | xargs -d" " -I{} env/bin/pip install -r {}
+$(VIRTUALENV):
+	virtualenv $(VIRTUALENV) --python=python3
+	$(VIRTUALENV)/bin/pip install -U pip
+
+.make/pip-requirements: requirements*.txt | .make $(VIRTUALENV)
+	echo -n $? | xargs -d" " -I{} $(VIRTUALENV)/bin/pip install -r {}
 	touch $@
 
 .make:
