@@ -1,12 +1,10 @@
-import os
-
 from sqlalchemy import (
     create_engine,
-    MetaData, Table, Column, ForeignKey, Integer, String, Float,
+    Column, ForeignKey, Integer, String, Float,
 )
 from sqlalchemy.orm import sessionmaker, scoped_session, relationship
 from sqlalchemy.ext.declarative import declarative_base
-import sqlalchemy.dialects.sqlite
+import sqlalchemy.dialects.sqlite  # noqa
 
 from munificent import config as app_config
 
@@ -29,6 +27,7 @@ def search_routes(q):
 
 
 Base = declarative_base()
+
 
 class Agency(Base):
     __tablename__ = 'agencies'

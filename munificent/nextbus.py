@@ -179,7 +179,7 @@ def populate_db():
                         stopID=stop['stopId'],
                         tag=stop['tag'],
                         title=stop['title'],
-                        )
+                    )
                     Session.add(stop_obj)
 
                 route_stop_obj = (Session.query(db.RouteStop)
@@ -189,10 +189,10 @@ def populate_db():
 
                 if not route_stop_obj:
                     route_stop_obj = db.RouteStop(
-                       agency_id=agency.id,
-                       route_id=route_obj.id,
-                       stop_id=stop_obj.id,
-                       )
+                        agency_id=agency.id,
+                        route_id=route_obj.id,
+                        stop_id=stop_obj.id,
+                    )
                     Session.add(route_stop_obj)
 
     Session.commit()
