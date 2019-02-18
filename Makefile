@@ -8,15 +8,11 @@ bootstrap:
 test:
 	tox
 
-.PHONY: lint
-lint:
-	flake8 munificent
-
 .PHONY: pip-requirements
 pip-requirements: .make/pip-requirements
 
 .make/pip-requirements: requirements*.txt | .make
-	env/bin/pip install -r requirements*.txt
+	echo -n $? | xargs -d" " -I{} env/bin/pip install -r {}
 	touch $@
 
 .make:
