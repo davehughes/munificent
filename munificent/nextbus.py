@@ -17,14 +17,14 @@ class NextBusAPI(object):
         self.session = requests.Session()
         self._build_proxy_methods()
 
-    def perform_request(self, request):
+    def perform_request(self, request, **kwargs):
         '''
         Perform the provided request, returning a JSON result.  This is typically
         used in situations where prebuilt queries (e.g. from a request builder object)
         are being performed against the API generically.
         '''
         request_id = uuid.uuid4()
-        res = self.session.send(request.prepare())
+        res = self.session.send(request.prepare(), **kwargs)
         res.raise_for_status()
         result = res.json()
         result['_meta'] = {
@@ -52,8 +52,9 @@ class NextBusAPI(object):
 
         def build_proxy_method(attr, m):
             def perform_request(*args, **kwargs):
+                request_args = kwargs.pop('request_args', {})
                 req = m(*args, **kwargs)
-                return self.perform_request(req)
+                return self.perform_request(req, **request_args)
             perform_request.func_name = 'proxy_{}'.format(attr)
             return perform_request
 
