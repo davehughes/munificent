@@ -55,7 +55,7 @@ class NextBusAPI(object):
                 request_args = kwargs.pop('request_args', {})
                 req = m(*args, **kwargs)
                 return self.perform_request(req, **request_args)
-            perform_request.func_name = 'proxy_{}'.format(attr)
+            perform_request.__name__ = 'proxy_{}'.format(attr)
             return perform_request
 
         for attr, value in proxy_methods:

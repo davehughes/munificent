@@ -1,6 +1,6 @@
 .PHONY: bootstrap
 bootstrap: 
-	test -d env || virtualenv env	
+	test -d env || virtualenv env --python=python3
 	env/bin/pip install -U pip
 	$(MAKE) pip-requirements
 

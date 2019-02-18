@@ -151,7 +151,7 @@ def parse_prediction_points(prediction_result):
             points.append(dict(
                 # Context data
                 type='prediction',
-                request_id=unicode(request_id),
+                request_id=str(request_id),
                 request_timestamp=request_timestamp,
                 routeTag=prediction['routeTag'],
                 stopTag=prediction['stopTag'],
