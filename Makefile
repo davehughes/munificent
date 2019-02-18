@@ -1,8 +1,16 @@
 .PHONY: bootstrap
 bootstrap: 
-	[[ -d env ]] || virtualenv env	
+	test -d env || virtualenv env	
 	env/bin/pip install -U pip
 	$(MAKE) pip-requirements
+
+.PHONY: test
+test:
+	tox
+
+.PHONY: lint
+lint:
+	flake8 munificent
 
 .PHONY: pip-requirements
 pip-requirements: .make/pip-requirements
@@ -17,4 +25,5 @@ pip-requirements: .make/pip-requirements
 clean:
 	rm -rf env
 	rm -rf .make
+	rm -rf .tox
 	rm -rf **/*.pyc

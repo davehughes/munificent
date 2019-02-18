@@ -1,5 +1,7 @@
 import os
 
+from .__version__ import __version__, VERSION
+
 
 class Config(object):
     def __init__(self):
@@ -13,5 +15,7 @@ class Config(object):
 config = Config()
 
 __all__ = [
+    '__version__',
+    'VERSION',
     'config',
 ]
