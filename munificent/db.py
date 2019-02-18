@@ -103,15 +103,17 @@ def reload_db():
     populate_db()
 
 
-def drop_db():
+def drop_db(engine=None):
+    engine = engine or configured_engine()
     for entity in reversed(Base.metadata.sorted_tables):
         try:
             entity.drop(engine)
         except Exception as e:
-            print e
+            print(e)
             continue
 
 
-def create_db():
+def create_db(engine=None):
+    engine = engine or configured_engine()
     for entity in Base.metadata.sorted_tables:
         entity.create(engine)

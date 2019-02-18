@@ -1,72 +1,135 @@
 import datetime
-import requests
 import uuid
+
+import requests
 
 from munificent import db
 Session = db.configured_session()
 
-JSON_FEED_URL = 'http://webservices.nextbus.com/service/publicJSONFeed'
+
+DEFAULT_JSON_FEED_URL = 'http://webservices.nextbus.com/service/publicJSONFeed'
 
 
-def list_agencies():
-    params = {
-        'command': 'agencyList',
-    }
-    res = requests.get(JSON_FEED_URL, params=params)
-    return res.json()
+class NextBusAPI(object):
+
+    def __init__(self, json_feed_url=DEFAULT_JSON_FEED_URL):
+        self.request_builder = NextBusAPIRequestBuilder(json_feed_url)
+        self.session = requests.Session()
+        self._build_proxy_methods()
+
+    def perform_request(self, request):
+        '''
+        Perform the provided request, returning a JSON result.  This is typically
+        used in situations where prebuilt queries (e.g. from a request builder object)
+        are being performed against the API generically.
+        '''
+        request_id = uuid.uuid4()
+        res = self.session.send(request.prepare())
+        res.raise_for_status()
+        result = res.json()
+        result['_meta'] = {
+            'timestamp': to_epoch_time(datetime.datetime.utcnow()),
+            'request_id': request_id,
+        }
+        return result
+
+    def _build_proxy_methods(self):
+        '''
+        Creates wrapped methods corresponding to all request builder methods that
+        proxy passed arguments to build a request, then perform that request using
+        the API's configured session.
+        '''
+        proxy_methods = []
+        for attr_name in dir(self.request_builder):
+            if attr_name.startswith('_'):
+                continue
+
+            attr_value = getattr(self.request_builder, attr_name, None)
+            if not callable(attr_value):
+                continue
+
+            proxy_methods.append((attr_name, attr_value))
+
+        def build_proxy_method(attr, m):
+            def perform_request(*args, **kwargs):
+                req = m(*args, **kwargs)
+                return self.perform_request(req)
+            perform_request.func_name = 'proxy_{}'.format(attr)
+            return perform_request
+
+        for attr, value in proxy_methods:
+            setattr(self, attr, build_proxy_method(attr, value))
 
 
-def get_schedule(agency='sf-muni', route='L'):
-    params = {
-        'command': 'schedule',
-        'a': agency,
-        'r': route,
-    }
-    res = requests.get(JSON_FEED_URL, params=params)
-    return res.json()
+class NextBusAPIRequestBuilder(object):
 
+    def __init__(self, json_feed_url=DEFAULT_JSON_FEED_URL):
+        self.feed_url = json_feed_url
 
-def get_routes(agency='sf-muni'):
-    params = {
-        'command': 'routeList',
-        'a': agency,
-    }
-    res = requests.get(JSON_FEED_URL, params=params)
-    return res.json()
+    # Core requests
+    def list_agencies(self):
+        return requests.Request('GET', self.feed_url, params={
+            'command': 'agencyList',
+            })
 
+    def get_schedule(self, agency, route):
+        return requests.Request('GET', self.feed_url, params={
+            'command': 'schedule',
+            'a': agency,
+            'r': route,
+            })
 
-def get_route_config(agency='sf-muni', route=None):
-    params = {
-        'command': 'routeConfig',
-        'a': agency,
-        'r': route,
-    }
-    res = requests.get(JSON_FEED_URL, params=params)
-    return res.json()
+    def get_routes(self, agency, route=None):
+        return requests.Request('GET', self.feed_url, params={
+            'command': 'routeList',
+            'a': agency,
+            })
 
+    def get_route_config(self, agency, route=None):
+        return requests.Request('GET', self.feed_url, params={
+            'command': 'routeConfig',
+            'a': agency,
+            'r': route,
+            })
 
-def get_predictions(agency='sf-muni', route='L', stop='...'):
-    params = {
-        'command': 'predictions',
-        'a': agency,
-        'r': route,
-        's': stop,
-    }
-    res = requests.get(JSON_FEED_URL, params=params)
-    return res.json()
+    def get_predictions(self, agency, route, stop):
+        return requests.Request('GET', self.feed_url, params={
+            'command': 'predictions',
+            'a': agency,
+            'r': route,
+            's': stop,
+            })
 
+    def get_multistop_predictions(self, agency, stops):
+        return requests.Request('GET', self.feed_url, params={
+            'command': 'predictionsForMultiStops',
+            'a': agency,
+            'stops': stops,
+            })
 
-def get_multistop_predictions(agency='sf-muni', stops=[]):
-    '''
-    Retrieves predictions for multiple stops of the form '<route_id>|<stop_id>'.
-    '''
-    params = {
-        'command': 'predictionsForMultiStops',
-        'a': agency,
-        'stops': stops,
-    }
-    res = requests.get(JSON_FEED_URL, params=params)
-    return res.json()
+    def get_messages(self, agency, routes=[]):
+        return requests.Request('GET', self.feed_url, params={
+            'command': 'messages',
+            'a': agency,
+            'route': routes,
+            })
+
+    def get_vehicle_locations(self, agency, route, time=None):
+        return requests.Request('GET', self.feed_url, params={
+            'command': 'vehicleLocations',
+            'a': agency,
+            'r': route,
+            't': time,  # TODO: to epoch
+            })
+
+    # Higher-level requests
+    def get_predictions_for_route(self, route):
+        stop_codes = [r.route_stop_code for r in route.stops]
+        return self.get_multistop_predictions(route.agency.tag, stop_codes)
+
+    def get_predictions_for_stop(self, stop):
+        stop_codes = [r.route_stop_code for r in stop.routes]
+        return self.get_multistop_predictions(stop.agency.tag, stop_codes)
 
 
 def to_epoch_time(dt):
@@ -74,81 +137,9 @@ def to_epoch_time(dt):
     return int((dt - EPOCH_START).total_seconds())
 
 
-def parse_prediction_points(agency, stops):
-    prediction_result = get_multistop_predictions(agency, stops)
-    points = []
-    request_id = uuid.uuid4()
-    request_timestamp = to_epoch_time(datetime.datetime.utcnow())
-    for prediction in prediction_result['predictions']:
-        direction = prediction.get('direction')
-
-        # Sometimes, no predictions are available because e.g. a tunnel is shut down
-        if not direction:
-            continue
-
-        raw_points = direction.get('prediction', [])
-        if type(raw_points) is dict:   # Single prediction
-            raw_points = [raw_points]
-
-        for prediction_point in raw_points:
-            points.append(dict(
-                # Context data
-                type='prediction',
-                request_id=unicode(request_id),
-                request_timestamp=request_timestamp,
-                routeTag=prediction['routeTag'],
-                stopTag=prediction['stopTag'],
-                routeTitle=prediction['routeTitle'],
-                stopTitle=prediction['stopTitle'],
-
-                # Prediction data
-                epochTime=int(prediction_point['epochTime']),
-                seconds=int(prediction_point['seconds']),
-                minutes=int(prediction_point['minutes']),
-                isDeparture=(prediction_point['isDeparture'].lower().strip() == 'true'),
-                block=prediction_point.get('block'),
-                vehicle=prediction_point.get('vehicle'),
-                dirTag=prediction_point.get('dirTag'),
-                tripTag=prediction_point.get('tripTag'),
-            ))
-
-    return points
-
-
-def prediction_data_for_route(route):
-    stop_codes = [r.route_stop_code for r in route.stops]
-    return parse_prediction_points(route.agency.tag, stop_codes)
-
-
-def prediction_data_for_stop(stop):
-    stop_codes = [r.route_stop_code for r in stop.routes]
-    return parse_prediction_points(stop.agency.tag, stop_codes)
-
-
-def get_messages(agency='sf-muni', routes=[]):
-    params = {
-        'command': 'messages',
-        'a': agency,
-        'route': routes,
-    }
-    res = requests.get(JSON_FEED_URL, params=params)
-    return res.json()
-
-
-def get_vehicle_locations(agency='sf-muni', route='L', time=None):
-    time = time or datetime.datetime.now()
-    params = {
-        'command': 'vehicleLocations',
-        'a': agency,
-        'r': route,
-        't': time,  # TODO: to epoch
-    }
-    res = requests.get(JSON_FEED_URL, params=params)
-    return res.json()
-
-
 def populate_db():
-    for agency in list_agencies()['agency']:
+    api = NextBusAPI()
+    for agency in api.list_agencies()['agency']:
         Session.add(db.Agency(**agency))
     Session.commit()
 
@@ -156,7 +147,7 @@ def populate_db():
         .filter(db.Agency.tag.in_(['sf-muni'])))
 
     for agency in agencies:
-        route_config_result = get_route_config(agency.tag)
+        route_config_result = api.get_route_config(agency.tag)
         routes = route_config_result['route']
         for route in routes:
             route_obj = db.Route(
