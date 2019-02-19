@@ -27,7 +27,10 @@ setup(
         'SqlAlchemy',
         ],
     include_package_data=True,
-    # entry_points={
-    #     'console_scripts': ['mycli=mymodule:cli'],
-    # },
+    entry_points={
+        'console_scripts': [
+            'muni=munificent.cli:main',
+            'munificent=munificent.cli:main',
+        ],
+    },
 )
