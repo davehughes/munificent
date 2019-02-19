@@ -23,7 +23,7 @@ class NextBusAPI(object):
         used in situations where prebuilt queries (e.g. from a request builder object)
         are being performed against the API generically.
         '''
-        request_id = uuid.uuid4()
+        request_id = str(uuid.uuid4())
         res = self.session.send(request.prepare(), **kwargs)
         res.raise_for_status()
         result = res.json()
@@ -115,12 +115,12 @@ class NextBusAPIRequestBuilder(object):
             'route': routes,
             })
 
-    def get_vehicle_locations(self, agency, route, time=None):
+    def get_vehicle_locations(self, agency, route):
         return requests.Request('GET', self.feed_url, params={
             'command': 'vehicleLocations',
             'a': agency,
             'r': route,
-            't': time,  # TODO: to epoch
+            't': 0,
             })
 
     # Higher-level requests
@@ -131,6 +131,9 @@ class NextBusAPIRequestBuilder(object):
     def get_predictions_for_stop(self, stop):
         stop_codes = [r.route_stop_code for r in stop.routes]
         return self.get_multistop_predictions(stop.agency.tag, stop_codes)
+
+    def get_vehicle_locations_for_route(self, route):
+        return self.get_vehicle_locations(route.agency.tag, route.tag)
 
 
 def to_epoch_time(dt):

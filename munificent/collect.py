@@ -1,58 +1,33 @@
 # -*- coding: utf-8 -*-
-import gzip
-import json
 import logging
-import os
-import signal
 import time
 
 from munificent import db
-from munificent.nextbus import NextBusAPI, NextBusAPIRequestBuilder
+from munificent.nextbus import NextBusAPIRequestBuilder
+
 Session = db.configured_session()
-
 LOG = logging.getLogger(__name__)
-
-
-def run_collection(requests, output_file, period=60.0):
-    api = NextBusAPI()
-    emitter = Emitter(open_file_gzip(output_file))
-    collector = Collector(api, requests, emitter=emitter, period=period)
-
-    def hup(*args):
-        LOG.info("Received HUP signal, flushing emitter")
-        emitter.flush()
-
-    signal.signal(signal.SIGHUP, hup)
-
-    try:
-        LOG.info("Running collection on PID: {}".format(os.getpid()))
-        collector.run()
-    finally:
-        emitter.flush()
 
 
 class Collector(object):
 
-    def __init__(self, api, requests, emitter, period=60.0):
-        self.api = api
-        self.requests = requests
+    def __init__(self, probes, emitter, period=60.0):
+        self.probes = probes
         self.period = period
         self.emitter = emitter
 
     def run(self):
         def generate_records():
-            per_request_period = self.period / float(len(self.requests))
+            per_request_period = self.period / float(len(self.probes))
             cycle = 0
             while True:
                 cycle += 1
                 cycle_start = time.time()
-                for req in self.requests:
+                for probe in self.probes:
                     request_start = time.time()
                     try:
-                        res = self.api.perform_request(req, timeout=10.0)
-                        predictions = parse_prediction_points(res)
-                        for prediction in predictions:
-                            yield prediction
+                        for record in probe.collect():
+                            yield record
                     except Exception as e:
                         LOG.exception(e)
                     finally:
@@ -66,53 +41,51 @@ class Collector(object):
             self.emitter.emit(record)
 
 
-def open_file_normal(path):
-    def open_file(mode):
-        return open(path, mode)
-    return open_file
+class CollectionProbe(object):
+    def __init__(self, api, request, record_parser):
+        self.api = api
+        self.request = request
+        self.record_parser = record_parser
+
+    def collect(self, **request_args):
+        result = self.api.perform_request(self.request, timeout=10)
+        return self.record_parser(result)
 
 
-def open_file_gzip(path):
-    def open_file(mode):
-        return gzip.open(path, mode)
-    return open_file
+MUNI_TRAIN_ROUTES = [
+    'F-Market & Wharves',
+    'J-Church',
+    'KT-Ingleside-Third Street',
+    'L-Taraval',
+    'M-Ocean View',
+    'N-Judah',
+    'NX-Express',
+    'S-Shuttle',
+    ]
 
 
-class Emitter(object):
-
-    def __init__(self, file_opener):
-        self._open_file = file_opener
-
-    def emit(self, record):
-        f = self._output_handle
-        json.dump(record, f)
-        f.write('\n')
-
-    @property
-    def _output_handle(self):
-        if not hasattr(self, '_output_handle_'):
-            self._output_handle_ = self._open_file('a')
-        return self._output_handle_
-
-    def flush(self):
-        '''
-        Higher level flush that closes and resets the internal output handle
-        '''
-        output_handle = getattr(self, '_output_handle_', None)
-        if output_handle:
-            output_handle.flush()
-            output_handle.close()
-            del self._output_handle_
-
-    def __del__(self):
-        self.flush()
+def get_muni_train_prediction_probes(api):
+    route_titles = MUNI_TRAIN_ROUTES
+    routes = (Session.query(db.Route).filter(db.Route.title.in_(route_titles)).all())
+    reqbuilder = NextBusAPIRequestBuilder()
+    requests = [reqbuilder.get_predictions_for_route(route) for route in routes]
+    probes = [CollectionProbe(api, req, parse_prediction_points) for req in requests]
+    return probes
 
 
-def get_prediction_results(requests):
+def get_muni_train_location_probes(api):
+    route_titles = MUNI_TRAIN_ROUTES
+    routes = (Session.query(db.Route).filter(db.Route.title.in_(route_titles)).all())
+    reqbuilder = NextBusAPIRequestBuilder()
+    requests = [reqbuilder.get_vehicle_locations_for_route(route) for route in routes]
+    probes = [CollectionProbe(api, req, parse_vehicle_locations) for req in requests]
+    return probes
+
+
+def get_prediction_results(api, requests):
     '''
     Gather prediction results once for the given requests.
     '''
-    api = NextBusAPI()
     results = []
     for req in requests:
         res = api.perform_request(req)
@@ -176,22 +149,33 @@ def parse_prediction_points(prediction_result):
     return points
 
 
+def parse_vehicle_locations(location_result):
+    locations = []
+    request_id = location_result['_meta']['request_id']
+    request_timestamp = location_result['_meta']['timestamp']
+    try:
+        for location in location_result.get('vehicle', []):
+            location.update(dict(
+                # Context data
+                type='vehicle_location',
+                request_id=request_id,
+                request_timestamp=request_timestamp,
+
+                # Location data
+                vehicle=location['id'],
+                lat=float(location['lat']),
+                lon=float(location['lon']),
+                heading=int(location['heading']),
+                predictable=parse_bool_string(location['predictable']),
+                secsSinceReport=int(location['secsSinceReport']),
+            ))
+            locations.append(location)
+    except Exception as e:
+        import ipdb; ipdb.set_trace();
+
+    return locations
+
+
 def parse_bool_string(s, true_values=None):
     true_values = true_values or ['true']
     return s in true_values
-
-
-def get_muni_train_requests():
-    route_titles = [
-        'F-Market & Wharves',
-        'J-Church',
-        'KT-Ingleside-Third Street',
-        'L-Taraval',
-        'M-Ocean View',
-        'N-Judah',
-        'NX-Express',
-        'S-Shuttle',
-        ]
-    routes = (Session.query(db.Route).filter(db.Route.title.in_(route_titles)).all())
-    reqbuilder = NextBusAPIRequestBuilder()
-    return [reqbuilder.get_predictions_for_route(route) for route in routes]
